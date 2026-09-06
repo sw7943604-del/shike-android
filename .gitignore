@@ -1,0 +1,10 @@
+.gradle/
+**/build/
+local.properties
+.tools/
+.idea/
+*.iml
+*.jks
+*.keystore
+app/src/androidTest/assets/private-*
+outputs/

@@ -1,0 +1,27 @@
+package cn.edu.csu.timetable.core.importer;
+import cn.edu.csu.timetable.core.*;
+import java.io.*;
+import java.util.*;
+import java.util.zip.*;
+import javax.xml.parsers.*;
+import org.w3c.dom.*;
+import jxl.*;
+public final class FileTableReader {
+ public static ImportResult readXls(InputStream in){Workbook book=null;try{book=Workbook.getWorkbook(in);List<List<String>> rows=new ArrayList<>();Sheet sheet=book.getSheet(0);if(sheet.getRows()>2000||sheet.getColumns()>500)throw new IOException("表格尺寸过大");for(int r=0;r<sheet.getRows();r++){List<String> row=new ArrayList<>();for(int c=0;c<sheet.getColumns();c++)row.add(sheet.getCell(c,r).getContents());rows.add(row);}return TableImporter.parse(rows);}catch(Exception e){return failure(e);}finally{if(book!=null)book.close();}}
+ public static ImportResult readXlsx(InputStream in){try{Map<String,byte[]> zip=unzip(in);List<String> strings=new ArrayList<>();if(zip.containsKey("xl/sharedStrings.xml")){NodeList nodes=xml(zip.get("xl/sharedStrings.xml")).getElementsByTagName("si");for(int i=0;i<nodes.getLength();i++)strings.add(nodes.item(i).getTextContent());}String sheet=zip.keySet().stream().filter(k->k.matches("xl/worksheets/sheet\\d+\\.xml")).sorted().findFirst().orElseThrow(()->new IOException("未找到工作表"));NodeList cells=xml(zip.get(sheet)).getElementsByTagName("c");List<List<String>> rows=new ArrayList<>();for(int i=0;i<cells.getLength();i++){Element cell=(Element)cells.item(i);String ref=cell.getAttribute("r");int c=0,pos=0;while(pos<ref.length()&&Character.isLetter(ref.charAt(pos)))c=c*26+ref.charAt(pos++)-'A'+1;int r=Integer.parseInt(ref.substring(pos))-1;c--;if(r>2000||c>500)throw new IOException("表格尺寸过大");while(rows.size()<=r)rows.add(new ArrayList<>());while(rows.get(r).size()<=c)rows.get(r).add("");String value=child(cell,"v");if("s".equals(cell.getAttribute("t")))value=strings.get(Integer.parseInt(value));if("inlineStr".equals(cell.getAttribute("t")))value=child(cell,"is");rows.get(r).set(c,value);}return TableImporter.parse(rows);}catch(Exception e){return failure(e);}}
+ public static ImportResult readDocx(InputStream in){try{Map<String,byte[]> z=unzip(in);Document d=xml(z.get("word/document.xml"));NodeList tables=d.getElementsByTagName("w:tbl");ImportResult out=new ImportResult();if(d.getElementsByTagName("w:vMerge").getLength()>0)out.warnings.add("Word含纵向合并单元格，相关课程请核对星期和节次");for(int i=0;i<tables.getLength();i++){List<List<String>> rows=new ArrayList<>();NodeList trs=((Element)tables.item(i)).getElementsByTagName("w:tr");for(int r=0;r<trs.getLength();r++){List<String> row=new ArrayList<>();NodeList cs=((Element)trs.item(r)).getElementsByTagName("w:tc");for(int c=0;c<cs.getLength();c++){Element cell=(Element)cs.item(c);StringBuilder text=new StringBuilder();NodeList ps=cell.getElementsByTagName("w:p");for(int p=0;p<ps.getLength();p++)text.append(ps.item(p).getTextContent()).append('\n');row.add(text.toString().trim());NodeList spans=cell.getElementsByTagName("w:gridSpan");if(spans.getLength()>0){int n=Integer.parseInt(((Element)spans.item(0)).getAttribute("w:val"));if(n>100)throw new IOException("合并单元格过大");for(int k=1;k<n;k++)row.add("");}}rows.add(row);}ImportResult one=TableImporter.parse(rows);out.courses.addAll(one.courses);out.warnings.addAll(one.warnings);out.times.putAll(one.times);if(!one.termName.isEmpty())out.termName=one.termName;if(one.startDate!=null)out.startDate=one.startDate;}if(tables.getLength()==0)return TextImporter.parse(paragraphText(d));return out;}catch(Exception e){return failure(e);}}
+ static String paragraphText(Document d){StringBuilder text=new StringBuilder();NodeList paragraphs=d.getElementsByTagName("w:p");for(int i=0;i<paragraphs.getLength();i++)text.append(paragraphs.item(i).getTextContent()).append('\n');return text.toString();}
+ static String child(Element e,String tag){NodeList n=e.getElementsByTagName(tag);return n.getLength()==0?"":n.item(0).getTextContent();}
+ static Map<String,byte[]> unzip(InputStream input)throws IOException{Map<String,byte[]> out=new LinkedHashMap<>();int total=0,count=0;try(ZipInputStream zip=new ZipInputStream(input)){ZipEntry e;byte[] b=new byte[8192];while((e=zip.getNextEntry())!=null){if(++count>1000)throw new IOException("压缩文件条目过多");ByteArrayOutputStream bytes=new ByteArrayOutputStream();int n;while((n=zip.read(b))!=-1){total+=n;if(total>32*1024*1024)throw new IOException("文档解压后超过32MB限制");bytes.write(b,0,n);}out.put(e.getName(),bytes.toByteArray());}}return out;}
+ static Document xml(byte[] bytes)throws Exception{
+  if(bytes==null)throw new IOException("文档内容缺失");
+  // Android的XML实现不支持所有桌面特性，预先拒绝DTD并拒绝任何外部实体解析。
+  String probe=new String(bytes,java.nio.charset.StandardCharsets.ISO_8859_1).replace("\u0000","");
+  if(probe.contains("<!DOCTYPE")||probe.contains("<!ENTITY"))throw new IOException("不支持包含DTD或外部实体的文档");
+  DocumentBuilderFactory f=DocumentBuilderFactory.newInstance();f.setExpandEntityReferences(false);
+  for(String feature:Arrays.asList("http://xml.org/sax/features/external-general-entities","http://xml.org/sax/features/external-parameter-entities"))try{f.setFeature(feature,false);}catch(ParserConfigurationException ignored){}
+  DocumentBuilder builder=f.newDocumentBuilder();builder.setEntityResolver((publicId,systemId)->{throw new org.xml.sax.SAXException("禁止外部实体");});
+  return builder.parse(new ByteArrayInputStream(bytes));
+ }
+ static ImportResult failure(Exception e){ImportResult out=new ImportResult();out.warnings.add("文件读取失败："+(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage()));return out;}
+}

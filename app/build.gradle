@@ -1,0 +1,17 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'cn.edu.csu.timetable'
+    compileSdk 36
+    defaultConfig { applicationId 'cn.edu.csu.timetable'; minSdk 26; targetSdk 36; versionCode 3; versionName '0.1.2'; testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner' }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    packaging { resources { excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*'] } }
+}
+dependencies {
+    implementation project(':core')
+    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+    implementation 'androidx.activity:activity:1.10.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
+}
